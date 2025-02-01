@@ -40,7 +40,7 @@ This  comparison is tested on jetson nano
 
 
 <p float="left">
-  <img src="/screenshots/workflow.png" width="600" height=400 />
+  <img src="C:\Users\91852\OneDrive\Desktop\EVERYTHING STUDY RELATED\projects\AI-based-Traffic-Control-System--\screenshots.png" width="600" height=400 />
 
   
 
