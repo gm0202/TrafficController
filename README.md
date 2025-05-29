@@ -1,114 +1,141 @@
-# AI-based-Traffic-Light-Control-System
-Computer vision aided traffic light scheduling systems
+# AI-based Traffic Light Control System
 
+An intelligent traffic management system that uses computer vision to dynamically control traffic light timings based on real-time vehicle density detection.
 
+## Overview
 
-AI-based-Traffic-Light-Control-System is an inteligent embedded system which applies computer vision to determine the density of cars at each lane on a traffic intersection so as to generate adaptive duration for green and red traffic light at each lane. 
+This project implements an adaptive traffic light control system that uses computer vision to:
+- Detect and count vehicles in real-time from camera feeds
+- Calculate vehicle density for each lane
+- Dynamically adjust traffic light durations based on traffic density
+- Provide a visual simulation of the traffic flow
 
-This repository represents an ongoing open source research into utilizing different object detection algorithims like YOLO  to design an inteligent and adaptive  traffic light control system. All the code and models are under research and development and subject to change.
+## Tech Stack
 
+### Core Components
+- **Object Detection**: YOLOv5s (optimized for edge devices)
+- **Model Optimization**:
+  - ONNX Runtime (CPU/GPU compatible)
+  - TensorRT (GPU-optimized)
+- **Hardware Requirements**:
+  - NVIDIA Jetson Nano (recommended)
+  - IP Cameras
+  - GPU-enabled system (for TensorRT implementation)
 
+### Performance Comparison (on Jetson Nano)
 
+| Detection Algorithm | Platform  | FPS   |
+|---------------------|-----------|-------|
+| YOLOv5s            | PyTorch   | 3.125 |
+| YOLOv5s            | ONNX      | 4     |
+| YOLOv5s            | TensorRT  | 13    |
 
-Yolov5s is selected for this project due to its speed, lightness and accuracy. The yolov5s model can be found from https://github.com/ultralytics/yolov5 
-
-While the models speed is great, it is not efficent enough to be deployed on edge devices for inference. To take advantage of performance the model is exported into Onnx version and then exported to Tensorrt model which optimizes the model for inference. The performance of the model before and after optimization is shown below. Tutorials on how to export Yolov5s model into tensorrt model can be found on the tutorial section at https://github.com/ultralytics/yolov5
-
-
-
-
-This  comparison is tested on jetson nano
-
-| Detection Algorithim     | Platform | FPS    |
-| :---        |    :----:   |          ---: |
-| Yolov5s      | Pytorch       |3.125   |
-| Yolov5s    | ONNX        | 4    |
-| Yolov5s    | Tensorrt        | 13    |
-| Yolov4      | Darknet       | -   |
-| Yolov3    | Darknet        | -     |
-| Yolov3-tiny    | Darknet        |  -      |
-
-
-## Features
-
-- Detect and counts vehicles from a camera feed on each lane
-- Determine a green and red light duration based on comparison of each lanes vehicle density
-- Displays a simulation
-
-
-## Work flow
-
-
-<p float="left">
-  <img src="C:\Users\91852\OneDrive\Desktop\EVERYTHING STUDY RELATED\projects\AI-based-Traffic-Control-System--\screenshots.png" width="600" height=400 />
-
-  
-
-</p>
-
-
-## Devices Used
-
-- Nvidia Jetson Nano
-- Ip camera
-
-
-
-## Project directory
+## Project Structure
 ```
-project
+project/
 │   README.md
-│   requirement.txt    
+│   requirements.txt    
+│   app.py
 │
-|__ common
-│   │  utils.py
-|__ datas
-    |  video.mp4
-    │  video1.mp4
-    |  video2.mp4
-    |  video3.mp4
-    |  video4.mp4
-    │  coco.name
-|__ implementation_with_yolov5s_onnx_model
-    |  main.py
-|__ implementation_with_yolov5s_tensorrt_model
-    |  processor.py
-    |  main.py
-|__ models
-    |  yolov5s.onnx
-    |  yolov5s.trt
+├── common/
+│   └── utils.py
+│
+├── data/
+│   ├── video.mp4
+│   ├── video1.mp4
+│   ├── video2.mp4
+│   ├── video3.mp4
+│   ├── video4.mp4
+│   └── coco.names
+│
+├── implementation_with_yolov5s_onnx_model/
+│   └── main.py
+│
+├── implementation_with_yolov5s_tensorrt_model/
+│   ├── processor.py
+│   └── main.py
+│
+├── models/
+│   ├── yolov5s.onnx
+│   └── yolov5s.trt
+│
+└── templates/
+    └── index.html
 ```
 
+## System Architecture
 
-## Getting started
-```sh
-$ git clone https://github.com/Natnael-k/AI-based-Traffic-Control-System--.git
-$ cd AI-based-Traffic-Control-System--
-$ pip install requirement.txt
+The system follows this workflow:
+1. Camera feeds capture traffic from multiple lanes
+2. YOLOv5s model detects vehicles in real-time
+3. Vehicle counting and density calculation per lane
+4. Dynamic traffic light timing adjustment
+5. Visual simulation of traffic flow
+
+## Installation
+
+1. Clone the repository:
+```bash
+git clone https://github.com/gm0202/TrafficController.git
+cd TrafficController
 ```
 
-## How to run
-
-For CPU and GPU environments...
-The Onnx implementation can run both on CPU and GPU
-```sh
-$ cd implementation_with_yolov5s_onnx_model 
-$ python3 main.py  --sources video1.mp4,video2.mp4,video3.mp4,video5.mp4
+2. Install dependencies:
+```bash
+pip install -r requirements.txt
 ```
 
-Only for GPU environments...
-The Tensorrt based implementation runs only on GPU
-```sh
-$ cd implementation_with_yolov5s_tensorrt_model
-$ python3 main.py --sources video1.mp4,video2.mp4,video3.mp4,video5.mp4
+3. Download required models:
+- YOLOv5s ONNX model
+- YOLOv5s TensorRT model (for GPU implementation)
+
+## Usage
+
+### ONNX Implementation (CPU/GPU)
+This implementation works on both CPU and GPU environments:
+```bash
+cd implementation_with_yolov5s_onnx_model
+python main.py --sources video1.mp4,video2.mp4,video3.mp4,video4.mp4
 ```
 
+### TensorRT Implementation (GPU Only)
+For optimal performance on NVIDIA GPUs:
+```bash
+cd implementation_with_yolov5s_tensorrt_model
+python main.py --sources video1.mp4,video2.mp4,video3.mp4,video4.mp4
+```
 
+### Web Interface
+To run the web interface:
+```bash
+python app.py
+```
 
+## Model Optimization
+
+The project uses two optimized versions of YOLOv5s:
+1. **ONNX Model**: 
+   - Compatible with both CPU and GPU
+   - Moderate performance improvement
+   - Easier deployment
+
+2. **TensorRT Model**:
+   - GPU-optimized for maximum performance
+   - Significant speed improvement (4x faster than PyTorch)
+   - Requires NVIDIA GPU
 
 ## References
- 1. How to export yolov5s model to onnx:
-   https://github.com/ultralytics/yolov5
- 2.  How to export onnx model to tensorrt:
-   https://github.com/SeanAvery/yolov5-tensorrt
-    
+
+1. YOLOv5 Model Export to ONNX:
+   - [YOLOv5 GitHub Repository](https://github.com/ultralytics/yolov5)
+
+2. ONNX to TensorRT Conversion:
+   - [YOLOv5 TensorRT Guide](https://github.com/SeanAvery/yolov5-tensorrt)
+
+## Contributing
+
+This is an ongoing research project. Contributions are welcome! Please feel free to submit issues and pull requests.
+
+## License
+
+This project is open source and available under the MIT License.
