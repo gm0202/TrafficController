@@ -1,4 +1,3 @@
-
 import numpy as np
 import cv2
 import time
@@ -13,7 +12,7 @@ print(pathlib.Path.cwd())
 class BoundedBox:
     
     def __init__(self, xmin, ymin, xmax, ymax, ids, confidence):
-        with open(str(pathlib.Path.cwd().parents[0])+"/datas/coco.names", 'rt') as f:
+        with open(str(pathlib.Path.cwd()) + "/datas/coco.names", 'rt') as f:
             self.classes = f.read().rstrip('\n').split('\n')  # stores a list of classes
         self.xmin = xmin
         self.ymin = ymin
@@ -59,19 +58,26 @@ class Lane:
 given lanes object return a duration based on comparison of each lane vehicle count
 """
 def schedule(lanes):
-   
-    standard=10 #standard duration
-    reward =0  #reward to be added or subtracted on the standard duration
-    turn = lanes.lanesTurn()
+    # Calculate priority for each lane
+    lane_priorities = []
+    for lane in lanes.getLanes():
+        priority = calculate_lane_priority(lane.vehicles)
+        lane_priorities.append((lane, priority))
     
-    for i,lane in enumerate(lanes.getLanes()):
-        if(i==(len(lanes.getLanes())-1)):
-            reward = reward + (turn.count-lane.count)*0.2
-        else:
-            reward = reward + (turn.count-lane.count)*0.5
-    scheduled_time = round((standard+reward),0)
-    lanes.enque(turn)
-    return scheduled_time
+    # Sort lanes by priority
+    lane_priorities.sort(key=lambda x: x[1], reverse=True)
+    
+    # Calculate base time (minimum time for any lane)
+    base_time = 10  # minimum 10 seconds
+    
+    # Calculate time for each lane based on priority
+    scheduled_times = {}
+    for i, (lane, priority) in enumerate(lane_priorities):
+        # Higher priority lanes get more time
+        time = base_time + (priority * 2)  # 2 seconds per priority level
+        scheduled_times[lane.lane_number] = time
+    
+    return scheduled_times
        
 """
 given duration and lanes, returns a grid image containing frames of each lane with
@@ -82,44 +88,45 @@ def display_result(wait_time,lanes):
     green = (0,255,0)
     red  = (0,0,255)
     yellow= (0,255,255)
-     
+    lane_imgs = []
     for i ,lane in enumerate(lanes.getLanes()):
         #resized so that all images have the same dimension inorder to be concatenable
         lane.frame = cv2.resize(lane.frame,(1280, 720)) 
-        
         if(wait_time<=0 and (i==(len(lanes.getLanes())-1) or i==0)):
            color=yellow
            text="yellow:2 sec"
-           
         elif(wait_time>=0 and i==(len(lanes.getLanes())-1)):
             color = green 
             text="green:"+str(wait_time)+" sec"
-        
         else:
             color=red
             text="red:"+str(wait_time)+ " sec"
         lane.frame = cv2.putText(lane.frame,text,(60,105),cv2.FONT_HERSHEY_SIMPLEX,4,color,6)
         lane.frame = cv2.putText(lane.frame,"vehicle count:"+str(lane.count),(60,195),cv2.FONT_HERSHEY_SIMPLEX,3,color,5)
-        globals()['img%s' % lane.lane_number]=lane.frame
-        
-
-
-    hori_image = np.concatenate((img1, img2), axis=1)
-    hori2_image = np.concatenate((img3, img4), axis=1)
-    all_lanes_image = np.concatenate((hori_image, hori2_image), axis=0)
-    
-    return all_lanes_image
+        lane_imgs.append(lane.frame)
+    # Handle different number of lanes
+    if len(lane_imgs) == 1:
+        return lane_imgs[0]
+    elif len(lane_imgs) == 2:
+        return np.concatenate((lane_imgs[0], lane_imgs[1]), axis=1)
+    elif len(lane_imgs) == 4:
+        hori_image = np.concatenate((lane_imgs[0], lane_imgs[1]), axis=1)
+        hori2_image = np.concatenate((lane_imgs[2], lane_imgs[3]), axis=1)
+        all_lanes_image = np.concatenate((hori_image, hori2_image), axis=0)
+        return all_lanes_image
+    else:
+        # Fallback: just return the first image
+        return lane_imgs[0]
 
 
 
 # given detecteed boxes, return number of vehicles on each box
 def vehicle_count(Boxes):
-        vehicle=0
-        for box in Boxes:
-            if box.name == "car" or box.name == "truck" or box.name == "bus":
-                vehicle=vehicle+1  
-
-        return vehicle
+    vehicles = []
+    for box in Boxes:
+        if box.name in ['car', 'truck', 'bus', 'motorcycle', 'bicycle', 'person']:
+            vehicles.append(Vehicle(box.name, box.confidence))
+    return vehicles
 
 # given the grid dimension, returns a 2d grid
 def _make_grid(nx=20, ny=20):
@@ -134,81 +141,57 @@ def drawPred( frame, classId, conf, left, top, right, bottom):
 
         return frame
 
-def postprocess(frame, outs):
-        frameHeight = frame.shape[0]
-        frameWidth = frame.shape[1]
-        ratioh, ratiow = frameHeight / 320, frameWidth / 320
-        # Scan through all the bounding boxes output from the network and keep only the
-        # ones with high confidence scores. Assign the box's class label as the class with the highest score.
-        classIds = []
-        confidences = []
-        boxes = []
-        for out in outs:
-            for detection in out:
-                scores = detection[5:]
-                classId = np.argmax(scores)
-                confidence = scores[classId]
-                if confidence > 0.5 and detection[4] > 0.5:
-                    center_x = int(detection[0] * ratiow)
-                    center_y = int(detection[1] * ratioh)
-                    width = int(detection[2] * ratiow)
-                    height = int(detection[3] * ratioh)
-                    left = int(center_x - width / 2)
-                    top = int(center_y - height / 2)
-                    classIds.append(classId)
-                    confidences.append(float(confidence))
-                    boxes.append([left, top, width, height])
+def modify(outs, confThreshold=0.5, nmsThreshold=0.5):
+    # outs may be a tuple or list, get the first array
+    if isinstance(outs, (tuple, list)):
+        outs = outs[0]
+    if hasattr(outs, 'shape') and len(outs.shape) == 3:
+        outs = outs[0]  # shape: (N, 85)
+    boxes = []
+    confidences = []
+    classIds = []
+    for detection in outs:
+        scores = detection[5:]
+        classId = np.argmax(scores)
+        confidence = scores[classId] * detection[4]  # class conf * obj conf
+        if confidence > confThreshold:
+            center_x = int(detection[0])
+            center_y = int(detection[1])
+            width = int(detection[2])
+            height = int(detection[3])
+            left = int(center_x - width / 2)
+            top = int(center_y - height / 2)
+            boxes.append([left, top, width, height])
+            confidences.append(float(confidence))
+            classIds.append(classId)
+    # NMS
+    indices = cv2.dnn.NMSBoxes(boxes, confidences, confThreshold, nmsThreshold)
+    detections = []
+    for i in indices:
+        i = i[0] if isinstance(i, (list, tuple, np.ndarray)) else i
+        detections.append((boxes[i], classIds[i], confidences[i]))
+    return detections
 
-        # Perform non maximum suppression to eliminate redundant overlapping boxes with
-        # lower confidences.
-        indices = cv2.dnn.NMSBoxes(boxes, confidences, 0.5, 0.5)
-        correct_boxes = []
-        for i in indices:
-            i = i[0]
-            box = boxes[i]
-            left = box[0]
-            top = box[1]
-            width = box[2]
-            height = box[3]
-            box=BoundedBox(box[0],box[1],box[2],box[3],classIds[i],confidences[i])
-            correct_boxes.append(box)
-            frame = drawPred(frame, classIds[i], confidences[i], left, top, left + width, top + height)
-        return correct_boxes,frame
-
-
-"""
-interpret the ouptut boxes into the appropriate bounding boxes based on the yolo paper 
-logspace transform
-"""
-def modify(outs,confThreshold=0.5, nmsThreshold=0.5, objThreshold=0.5):
-        print(str(pathlib.Path.cwd().parents[0])+"/datas")
-        with open(str(pathlib.Path.cwd().parents[0])+'/datas/coco.names', 'rt') as f:
-            classes = f.read().rstrip('\n').split('\n')   
-        print("dir:"+str(pathlib.Path.cwd()))
-        colors = [np.random.randint(0, 255, size=3).tolist() for _ in range(len(classes))]
-        num_classes = len(classes)
-        anchors = [[10, 13, 16, 30, 33, 23], [30, 61, 62, 45, 59, 119], [116, 90, 156, 198, 373, 326]]
-        nl = len(anchors)
-        na = len(anchors[0]) // 2
-        no = num_classes + 5
-        grid = [np.zeros(1)] * nl
-        stride = np.array([8., 16., 32.])
-        anchor_grid = np.asarray(anchors, dtype=np.float32).reshape(nl, 1, -1, 1, 1, 2)
-
-        
-        z = []  # inference output
-        for i in range(nl):
-            bs, _, ny, nx,c = outs[i].shape  
-            if grid[i].shape[2:4] != outs[i].shape[2:4]:
-                grid[i] = _make_grid(nx, ny)
-                
-
-            y = 1 / (1 + np.exp(-outs[i])) 
-            y[..., 0:2] = (y[..., 0:2] * 2. - 0.5 + grid[i]) * int(stride[i])
-            y[..., 2:4] = (y[..., 2:4] * 2) ** 2 * anchor_grid[i]  # wh
-            z.append(y.reshape(bs, -1,no))
-        z = np.concatenate(z, axis=1)
-        return z
+def postprocess(frame, detections):
+    frameHeight = frame.shape[0]
+    frameWidth = frame.shape[1]
+    # Load class names
+    with open(str(pathlib.Path.cwd())+'/datas/coco.names', 'rt') as f:
+        classes = f.read().rstrip('\n').split('\n')
+    correct_boxes = []
+    for box, classId, confidence in detections:
+        left, top, width, height = box
+        right = left + width
+        bottom = top + height
+        # Clamp coordinates
+        left = max(0, left)
+        top = max(0, top)
+        right = min(frameWidth - 1, right)
+        bottom = min(frameHeight - 1, bottom)
+        # Draw
+        frame = drawPred(frame, classId, confidence, left, top, right, bottom)
+        correct_boxes.append(BoundedBox(left, top, right, bottom, classId, confidence))
+    return correct_boxes, frame
 
 
 """
@@ -240,25 +223,70 @@ containg processed image and waiting duration for each image
 
 """
 
-def final_output(net,output_layer,lanes):
+def final_output(net, output_layer, lanes):
+    for lane in lanes.getLanes():
+        # Resize frame for model input
+        lane.frame = cv2.resize(lane.frame, (640, 640))
         
-        for lane in lanes.getLanes():
-            lane.frame=cv2.resize(lane.frame,(1280,720))      #resize into a standard image  dimension
-            blob = cv2.dnn.blobFromImage(lane.frame, 1 / 255.0, (320, 320),
-                swapRB=True, crop=False)
-            net.setInput(blob)
-            start = time.time()
-            layerOutputs = net.forward(output_layer)
-            end = time.time() 
-            print("fps:"+str(end-start))   
-            dets = modify(layerOutputs)
-            boxes,frame = postprocess(lane.frame,dets)
-            start = time.time()
-            count = vehicle_count(boxes)
-            lane.count= count
-            lane.frame=frame
-            
-            
+        # Create blob and run inference
+        blob = cv2.dnn.blobFromImage(lane.frame, 1/255.0, (640, 640),
+                                   swapRB=True, crop=False)
+        net.setInput(blob)
         
+        # Run inference
+        start = time.time()
+        layerOutputs = net.forward(output_layer)
+        end = time.time()
+        print(f"FPS: {1/(end-start):.2f}")
         
-        return lanes
+        # Process detections
+        dets = modify(layerOutputs)
+        boxes, frame = postprocess(lane.frame, dets)
+        
+        # Count vehicles and store them
+        lane.vehicles = vehicle_count(boxes)
+        lane.count = len(lane.vehicles)
+        lane.frame = frame
+        
+    return lanes
+
+class Vehicle:
+    def __init__(self, vehicle_type, confidence):
+        self.type = vehicle_type
+        self.confidence = confidence
+        self.priority = self._get_priority()
+
+    def _get_priority(self):
+        priorities = {
+            'ambulance': 5,
+            'fire truck': 5,
+            'police car': 5,
+            'truck': 4,
+            'bus': 4,
+            'car': 3,
+            'motorcycle': 2,
+            'bicycle': 2,
+            'auto-rickshaw': 1,
+            'person': 1
+        }
+        return priorities.get(self.type, 0)
+
+def calculate_lane_priority(vehicles):
+    if not vehicles:
+        return 0
+    
+    # Base priority is the highest priority vehicle in the lane
+    base_priority = max(vehicle.priority for vehicle in vehicles)
+    
+    # Count vehicles by type
+    vehicle_counts = {}
+    for vehicle in vehicles:
+        vehicle_counts[vehicle.type] = vehicle_counts.get(vehicle.type, 0) + 1
+    
+    # Calculate weighted priority based on vehicle counts
+    weighted_priority = base_priority
+    for vehicle_type, count in vehicle_counts.items():
+        vehicle = Vehicle(vehicle_type, 1.0)  # Create temporary vehicle for priority
+        weighted_priority += (vehicle.priority * count * 0.1)  # 0.1 is a scaling factor
+    
+    return weighted_priority

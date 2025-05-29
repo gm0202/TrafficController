@@ -1,7 +1,7 @@
 import sys
 import argparse
 import pathlib
-sys.path.insert(1,str(pathlib.Path.cwd().parents[0])+"/common")
+sys.path.insert(0, str(pathlib.Path.cwd() / "common"))
 
 import cv2
 import utils as util
@@ -10,72 +10,96 @@ import numpy as np
 
 
 def main(sources):
-	#read image from each lanes video source
-	vs  = cv2.VideoCapture(str(pathlib.Path.cwd().parents[0])+"/datas/"+sources[0])
-	vs2 = cv2.VideoCapture(str(pathlib.Path.cwd().parents[0])+"/datas/"+sources[1])
-	vs3 = cv2.VideoCapture(str(pathlib.Path.cwd().parents[0])+"/datas/"+sources[2])
-	vs4 = cv2.VideoCapture(str(pathlib.Path.cwd().parents[0])+"/datas/"+sources[3])
-
-	#creates a network given yolov5s model
-	net = cv2.dnn.readNet(str(pathlib.Path.cwd().parents[0])+"/models/yolov5s.onnx")
-	net.setPreferableBackend(cv2.dnn.DNN_BACKEND_CUDA)
-	net.setPreferableTarget(cv2.dnn.DNN_TARGET_CUDA)
-	ln = net.getUnconnectedOutLayersNames() # returns the name of output layer
-
-	#initial configuration of each lanes order
-	lanes = util.Lanes([util.Lane("","",1),util.Lane("","",3),util.Lane("","",4),util.Lane("","",2),])
-	wait_time=0
-
-	while True:
-
-		# read the next frame from the 
-		(success, frame) = vs.read()
-		(success, frame2) = vs2.read()
-		(success, frame3) = vs3.read()
-		(success, frame4) = vs4.read()
-		# if the frame was not successfuly captured, then we have reached the end
-		# of the stream or there is disconnection
-		if not success:
-		        break
-		# assigns each lane its corresponding frame
-		for i,lane in enumerate(lanes.getLanes()):
-		    if(lane.lane_number==1):
-		        lane.frame=frame
-		    elif(lane.lane_number==2):
-		        lane.frame=frame2
-		    elif(lane.lane_number==3): 
-		        lane.frame=frame3
-		    elif(lane.lane_number==4):
-		        lane.frame= frame4
-		start = time.time()
-		lanes = util.final_output(net,ln,lanes) # returns lanes object with processed frame
-		end = time.time()
-		print("total processing:"+str(end-start))
-		if wait_time<=0:
-		   images_transition=util.display_result(wait_time,lanes)    
-		   final_image = cv2.resize(images_transition,(1020,720))
-		   cv2.imshow("f",final_image)
-		   cv2.waitKey(100)
-		   
-		    
-		   wait_time=util.schedule(lanes) # returns waiting duration of each lane
-		images_scheduled=util.display_result(wait_time,lanes)    
-		final_image = cv2.resize(images_scheduled,(1020,720))
-		cv2.imshow("f",final_image)
-		cv2.waitKey(1)
-		wait_time=wait_time-1
-if __name__=="__main__":
+	print("Starting main function...")
 	
-        
-        
-        parser = argparse.ArgumentParser(description="Determines duaration based on car count on images")
-        parser.add_argument("--sources",help="video feeds to be infered on, the videos must reside in the datas folder", type=String,default="video1.mp4,video5.mp4,video2.mp4,video3.mp4") 
-        args = parser.parse_args()
+	# Initialize video capture (use camera if no video files provided)
+	if sources[0].lower() == 'camera':
+		print("Using camera input...")
+		vs = cv2.VideoCapture(0)  # Use default camera
+	else:
+		print(f"Opening video source: {sources[0]}")
+		vs = cv2.VideoCapture(sources[0])
 
-        sources=args.sources
-        sources =sources.split(",")
-        print(type(sources))
-        main(sources)		        
+	# Check if video opened successfully
+	if not vs.isOpened():
+		print("Error: Could not open video source")
+		return
+
+	print("Loading ONNX model...")
+	#creates a network given yolov5s model
+	net = cv2.dnn.readNet("models/yolov5s.onnx")
+	# Since we don't have CUDA, use CPU
+	net.setPreferableBackend(cv2.dnn.DNN_BACKEND_DEFAULT)
+	net.setPreferableTarget(cv2.dnn.DNN_TARGET_CPU)
+	ln = net.getUnconnectedOutLayersNames() # returns the name of output layer
+	print("Model loaded successfully")
+
+	# Initialize single lane
+	lanes = util.Lanes([util.Lane("", "", 1)])
+	
+	# Initialize traffic light states
+	current_lane = 1
+	wait_time = 0
+	scheduled_times = {}
+
+	print("Starting main loop...")
+	while True:
+		# Read frame
+		success, frame = vs.read()
+		if not success:
+			print("Error: Could not read frame from source")
+			break
+
+		# Assign frame to lane
+		lanes.getLanes()[0].frame = frame
+
+		# Process frame and detect vehicles
+		start = time.time()
+		lanes = util.final_output(net, ln, lanes)
+		end = time.time()
+		print(f"Total processing time: {end-start:.2f} seconds")
+
+		# Update traffic light timing based on priorities
+		if wait_time <= 0:
+			scheduled_times = util.schedule(lanes)
+			current_lane = max(scheduled_times.items(), key=lambda x: x[1])[0]
+			wait_time = scheduled_times[current_lane]
+			print(f"Lane {current_lane} has highest priority. Time: {wait_time} seconds")
+
+		# Display results
+		images = util.display_result(wait_time, lanes)
+		final_image = cv2.resize(images, (1020, 720))
+		
+		# Add priority information to display
+		for lane in lanes.getLanes():
+			priority = util.calculate_lane_priority(lane.vehicles)
+			cv2.putText(final_image, f"Priority: {priority:.1f}", 
+					   (60, 285), cv2.FONT_HERSHEY_SIMPLEX, 2, (255, 255, 255), 3)
+
+		cv2.imshow("Traffic Control System", final_image)
+		
+		# Handle key press
+		key = cv2.waitKey(1)
+		if key == ord('q'):
+			print("Quitting...")
+			break
+
+		wait_time -= 1
+
+	# Cleanup
+	vs.release()
+	cv2.destroyAllWindows()
+
+if __name__=="__main__":
+	parser = argparse.ArgumentParser(description="AI-based Traffic Control System")
+	parser.add_argument("--sources", type=str, 
+					   default="camera",
+					   help="Video source (camera or video file)")
+	args = parser.parse_args()
+
+	sources = args.sources.split(",")
+	print("Using video source:", sources[0])
+	main(sources)		        
 
 
 
